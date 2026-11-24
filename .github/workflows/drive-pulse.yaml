@@ -1,0 +1,67 @@
+name: Drive Pulse
+
+# Toutes les heures : ce qui a bougé dans le Drive suivi, résumé dans pulse.md sur la branche
+# `drive-pulse` du repo PRIVÉ StepForIt/wappe. Ce repo est public pour que les minutes Actions
+# soient gratuites : il ne contient QUE le script, aucune donnée.
+#
+# Règles (cf. README) :
+#   - le résultat part dans wappe, jamais ici ;
+#   - tous les identifiants (dossiers, Nango) sont des SECRETS : masqués dans les logs ;
+#   - les logs n'affichent que des compteurs.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: drive-pulse
+  cancel-in-progress: false
+
+jobs:
+  pulse:
+    # Jamais depuis un fork : les secrets n'y existent pas, et rien ne doit tourner ailleurs.
+    if: github.repository == 'StepForIt/drive-pulse'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extraire la branche drive-pulse de wappe
+        uses: actions/checkout@v4
+        with:
+          repository: StepForIt/wappe
+          ref: drive-pulse
+          path: pulse
+          token: ${{ secrets.WAPPE_PULSE_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Lire le Drive
+        id: pulse
+        env:
+          NANGO_HOST: ${{ secrets.NANGO_HOST }}
+          NANGO_SECRET_KEY: ${{ secrets.NANGO_SECRET_KEY }}
+          NANGO_CONNECTION_ID: ${{ secrets.NANGO_CONNECTION_ID }}
+          NANGO_PROVIDER_CONFIG_KEY: ${{ secrets.NANGO_PROVIDER_CONFIG_KEY }}
+          PULSE_ROOT_ID: ${{ secrets.PULSE_ROOT_ID }}
+          PULSE_PINNED: ${{ secrets.PULSE_PINNED }}
+          PULSE_WATCH: ${{ secrets.PULSE_WATCH }}
+          PULSE_IGNORE_DIRS: ${{ secrets.PULSE_IGNORE_DIRS }}
+          PULSE_IGNORE_AUTHORS: ${{ secrets.PULSE_IGNORE_AUTHORS }}
+          PULSE_DIR: ${{ github.workspace }}/pulse
+        run: node src/cli.mjs
+
+      - name: Publier dans wappe
+        if: steps.pulse.outputs.changed == 'true'
+        working-directory: pulse
+        run: |
+          git config user.name "wappe-drive-pulse"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pulse.md state.json
+          git commit -qm "Drive Pulse $(date -u +%FT%H:%MZ)"
+          git push -q origin HEAD:refs/heads/drive-pulse
